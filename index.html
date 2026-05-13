@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- V10 -->
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -1263,133 +1262,101 @@ function interpretarMensagem(txt) {
 }
 
 // ── Loop principal do chat ──
-
-// ══ DETECÇÃO LOCAL DE AÇÕES (sem API) ══
+// ══ DETECÇÃO LOCAL DE AÇÕES ══
 function detectarAcaoLocal(txt) {
-  const lo = txt.toLowerCase().trim();
-  const sem = lo.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const lo  = txt.toLowerCase().trim();
+  const sem = lo.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // Helper: extrai valor monetário
-  function extrairValor(s) {
-    const m = s.match(/r?\$?\s*([\d]+[.,][\d]{2})|([\d]{2,})/);
-    if (!m) return null;
-    const v = (m[1]||m[2]).replace('.','').replace(',','.');
-    return parseFloat(v);
-  }
-
-  // Helper: detecta mês
   function extrairMes(s) {
-    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-    const nomes = ['janeiro','fevereiro','marco','abril','maio','junho',
-                   'julho','agosto','setembro','outubro','novembro','dezembro'];
-    for (let i=0;i<12;i++) if (ns.includes(nomes[i])) return i;
+    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const nm = ['janeiro','fevereiro','marco','abril','maio','junho',
+                'julho','agosto','setembro','outubro','novembro','dezembro'];
+    for (let i = 0; i < 12; i++) if (ns.includes(nm[i])) return i;
     return null;
   }
 
-  // Helper: detecta categoria
+  function extrairValor(s) {
+    const m = s.match(/(\d[\d.]*,\d{2}|\d{2,})/);
+    if (!m) return null;
+    return parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+  }
+
   function extrairCat(s) {
-    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-    const map = [
-      [/mercado|supermercado|alimenta|comida|ifood|restaurante/,'Alimentação'],
-      [/aluguel|condominio|agua|luz|energia|internet|moradia|gas/,'Moradia'],
-      [/medico|farmacia|academia|saude|plano/,'Saúde'],
-      [/uber|onibus|combustivel|gasolina|transporte/,'Transporte'],
-      [/cinema|netflix|lazer|spotify|entretenimento/,'Lazer'],
-      [/escola|curso|faculdade|educacao/,'Educação'],
-      [/roupa|sapato|vestuario/,'Vestuário'],
-      [/cartao|credito|fatura/,'Cartão de Crédito'],
-      [/investimento|tesouro|cdb/,'Investimentos'],
+    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const mp = [
+      [/mercado|supermercado|alimenta|comida|ifood|restaurante/, 'Alimenta'],
+      [/aluguel|condominio|agua|luz|energia|internet|moradia|gas/, 'Morad'],
+      [/medico|farmacia|academia|saude|plano/, 'Sau'],
+      [/uber|onibus|combustivel|gasolina|transporte/, 'Transp'],
+      [/cinema|netflix|lazer|spotify/, 'Lazer'],
+      [/escola|curso|faculdade|educacao/, 'Educa'],
+      [/roupa|sapato|vestuario/, 'Vestu'],
+      [/cartao|credito|fatura/, 'Cart'],
+      [/investimento|tesouro|cdb/, 'Invest'],
     ];
-    for (const [rx,cat] of map) if (rx.test(ns)) {
-      return S.cats.find(c=>c.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
-        .includes(cat.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase())) || S.cats[0];
+    for (const [rx, prefix] of mp) {
+      if (rx.test(ns)) {
+        const found = S.cats.find(c =>
+          c.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().startsWith(prefix.toLowerCase())
+        );
+        if (found) return found;
+      }
     }
     return S.cats[0];
   }
 
   // ── NAVEGAR ──
+  const nmNav = ['janeiro','fevereiro','marco','abril','maio','junho',
+                 'julho','agosto','setembro','outubro','novembro','dezembro'];
   if (/(vai|ir|abre|mostra|navega).*(dashboard|inicio|painel|home)/.test(sem))
-    return {type:'NAVIGATE',params:{page:'dashboard'}};
+    return { type: 'NAVIGATE', params: { page: 'dashboard' } };
   if (/(vai|ir|abre|mostra).*(mentoria|analise ia)/.test(sem))
-    return {type:'NAVIGATE',params:{page:'mentoria'}};
+    return { type: 'NAVIGATE', params: { page: 'mentoria' } };
   if (/(vai|ir|abre).*(trimestral)/.test(sem))
-    return {type:'NAVIGATE',params:{page:'trimestral'}};
+    return { type: 'NAVIGATE', params: { page: 'trimestral' } };
   if (/(vai|ir|abre).*(semestral)/.test(sem))
-    return {type:'NAVIGATE',params:{page:'semestral'}};
+    return { type: 'NAVIGATE', params: { page: 'semestral' } };
   if (/(vai|ir|abre).*(anual|ano todo)/.test(sem))
-    return {type:'NAVIGATE',params:{page:'anual'}};
-  const mNav = ['janeiro','fevereiro','marco','abril','maio','junho',
-                'julho','agosto','setembro','outubro','novembro','dezembro'];
-  for (let i=0;i<12;i++) {
-    if (sem.includes(mNav[i]) && /(vai|ir|abre|mes\s|aba)/.test(sem))
-      return {type:'NAVIGATE',params:{page:'mes_'+i}};
+    return { type: 'NAVIGATE', params: { page: 'anual' } };
+  for (let i = 0; i < 12; i++) {
+    if (sem.includes(nmNav[i]) && /(vai|ir|abre|mes |aba)/.test(sem))
+      return { type: 'NAVIGATE', params: { page: 'mes_' + i } };
   }
 
-  // ── EXCLUIR / REMOVER ──
-  const rxDel = /^(?:remove?|deleta|exclui|apaga|cancela|tira)\s+(?:o\s+|a\s+|os\s+|as\s+)?(.+)/i;
-  const mDel = txt.match(rxDel);
+  // ── EXCLUIR ──
+  const mDel = txt.match(/^(?:remove?|deleta|exclui|apaga|cancela|tira)\s+(?:o\s+|a\s+|os\s+|as\s+)?(.+)/i);
   if (mDel) {
     let desc = mDel[1].trim();
-    const mi = extrairMes(desc);
-    // Remove nome do mês da descrição
-    ['janeiro','fevereiro','março','abril','maio','junho',
-     'julho','agosto','setembro','outubro','novembro','dezembro'].forEach(m=>{
-      desc = desc.replace(new RegExp('\\s*(de\\s+)?'+m+'\\s*','i'),'').trim();
+    const mi  = extrairMes(desc);
+    const nmM = ['janeiro','fevereiro','marco','abril','maio','junho',
+                 'julho','agosto','setembro','outubro','novembro','dezembro'];
+    const nmMa = ['janeiro','fevereiro','março','abril','maio','junho',
+                  'julho','agosto','setembro','outubro','novembro','dezembro'];
+    [...nmM, ...nmMa].forEach(m => {
+      desc = desc.replace(new RegExp('(de\\s+)?' + m + '(\\s|$)', 'gi'), '').trim();
     });
-    desc = desc.replace(/\s+de\s*$/i,'').trim();
-    return {type:'DELETE_TRANSACTION', params:{desc, mi: mi !== null ? mi : undefined}};
+    desc = desc.replace(/\s+de\s*$/i, '').trim();
+    return { type: 'DELETE_TRANSACTION', params: { desc, mi: mi !== null ? mi : undefined } };
   }
 
   // ── CRIAR CATEGORIA ──
-  const rxCat = /(?:cria|adiciona|nova|crie)\s+categoria\s+["\'"]?([\w\s\-áàãâéêíóõôúüç]{2,30})["\'"]?/i;
-  const mCat = txt.match(rxCat);
-  if (mCat) return {type:'ADD_CATEGORY', params:{name: mCat[1].trim()}};
+  const mCat = txt.match(/(?:cria|adiciona|nova|crie)\s+categoria\s+["']?([^\n"']{2,30})["']?/i);
+  if (mCat) return { type: 'ADD_CATEGORY', params: { name: mCat[1].trim() } };
 
   // ── ATUALIZAR META ──
-  const rxMeta = /(?:muda|altera|atualiza|define|ajusta)\s+(?:a\s+)?meta\s+(?:de\s+)?(\w+)\s+(?:para|em)\s+(?:r\$\s*)?([ \d.,]+)/i;
-  const mMeta = txt.match(rxMeta);
+  const mMeta = txt.match(/(?:muda|altera|atualiza|define|ajusta)\s+(?:a\s+)?meta\s+(?:de\s+)?(\w+)\s+(?:para|em)\s+(?:r\$\s*)?([\d.,]+)/i);
   if (mMeta) {
-    const keys = {poupanca:'poupanca',poupança:'poupanca',reserva:'reserva',
-                  investimento:'investimento',divida:'divida',dívida:'divida'};
-    const key = Object.keys(keys).find(k=>mMeta[1].toLowerCase().includes(k));
+    const kmap = { poupanca:'poupanca', poupança:'poupanca', reserva:'reserva',
+                   investimento:'investimento', divida:'divida', dívida:'divida' };
+    const kw = mMeta[1].toLowerCase();
+    const key = Object.keys(kmap).find(k => kw.includes(k));
     const val = parseFloat(mMeta[2].replace(/\./g,'').replace(',','.'));
-    if (key && val>=0) return {type:'UPDATE_GOAL', params:{key:keys[key], valor:val}};
+    if (key && val >= 0) return { type: 'UPDATE_GOAL', params: { key: kmap[key], valor: val } };
   }
 
-  // ── ADICIONAR RECEITA ──
-  const isRec = /(recebi|ganhei|salario|salário|renda|freelance|bonus|bônus|receita|entrada)/.test(sem);
-  const rxAdd = /(?:adiciona|lanca|registra|coloca|recebi|ganhei)\s+.{0,40}?([\d]+[.,][\d]{2}|[\d]{2,})/i;
-  const mAdd = txt.match(rxAdd);
-  if (isRec && mAdd) {
-    const val = extrairValor(mAdd[0]);
-    if (val && val > 0) {
-      const mi = extrairMes(txt) !== null ? extrairMes(txt) : CM;
-      const fixo = /(fixo|recorrente|todo\s*mes|mensal)/.test(sem);
-      return {type:'ADD_TRANSACTION', params:{
-        desc: 'Receita', cat: S.cats.find(c=>c.includes('Outro'))||S.cats[0],
-        tipo:'RECEITA', valor:val, mi, nat: fixo?'fixa':'variavel', car:'pessoal', parc:1
-      }};
-    }
-  }
-
-  // ── ADICIONAR DESPESA ──
-  const rxDep = /(?:adiciona|lanca|registra|paguei|gastei|comprei|coloca)\s+.{0,50}?([\d]+[.,][\d]{2}|[\d]{2,})/i;
-  const mDep = txt.match(rxDep);
-  if (!isRec && mDep && !/remov|delet|exclu|apag/.test(sem)) {
-    const val = extrairValor(mDep[0]);
-    if (val && val > 0 && val < 500000) {
-      const mi = extrairMes(txt) !== null ? extrairMes(txt) : CM;
-      const cat = extrairCat(txt);
-      const fixo = /(fixo|recorrente|todo\s*mes|mensal)/.test(sem);
-      return {type:'ADD_TRANSACTION', params:{
-        desc: 'Despesa', cat, tipo:'DESPESA', valor:val, mi,
-        nat: fixo?'fixa':'variavel', car:'pessoal', parc:1
-      }};
-    }
-  }
-
-  return null; // Não detectado — chama a API
+  return null;
 }
+
 
 async function irisSendMsg() {
   if (irisThinking) return;
@@ -1397,15 +1364,15 @@ async function irisSendMsg() {
   const txt = inp.value.trim();
   if (!txt) return;
 
-  // Tenta detectar ação localmente primeiro (sem gastar API)
+  // Detecta ações simples localmente (sem API)
   const acaoLocal = detectarAcaoLocal(txt);
   if (acaoLocal) {
     inp.value = ''; grow(inp);
     irisAddMsg('me', txt);
-    irisHistory.push({role:'user', content:txt});
-    const okLocal = execAcao(acaoLocal);
-    irisAddMsg('ai', okLocal || 'Feito!');
-    irisHistory.push({role:'assistant', content:okLocal||'ok'});
+    irisHistory.push({ role: 'user', content: txt });
+    const resLocal = execAcao(acaoLocal);
+    irisAddMsg('ai', resLocal || 'Feito!');
+    irisHistory.push({ role: 'assistant', content: resLocal || 'ok' });
     irisSave(); irisUpdateHints();
     return;
   }
@@ -1432,7 +1399,7 @@ async function irisSendMsg() {
 
     // ── System prompt compacto com contexto real ──
     const system = [
-      'Voce DEVE responder APENAS com um objeto JSON valido. Nenhuma palavra fora do JSON. Nenhum markdown. Nenhum texto antes ou depois. APENAS o JSON.',
+      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. SEM markdown. SEM backticks. SEM escapes de underscore. JSON compacto sem espacos extras.',
       'FORMATO OBRIGATORIO: {"reply":"<msg curta>","action":{"type":"<TIPO>","params":<params>},"autoExec":true}',
       'IMPORTANTE: autoExec deve ser SEMPRE true para ADD_TRANSACTION e ADD_CATEGORY. Apenas false para DELETE.',
       'Para multiplos lancamentos: params deve ser um array JSON de objetos.',
@@ -1475,7 +1442,7 @@ async function irisSendMsg() {
 
     // ── OpenRouter API (compatível com formato OpenAI, CORS liberado) ──
     const orBody = JSON.stringify({
-      model: 'mistralai/mistral-7b-instruct:free',
+      model: 'openrouter/auto',
       max_tokens: 2500,
       messages: [
         { role: 'system', content: system },
@@ -1539,4 +1506,38 @@ async function irisSendMsg() {
         let depth = 0, inStr = false, escape = false;
         for (let i = 0; i < repaired.length; i++) {
           const ch = repaired[i];
-          if (esc
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"' && !escape) { inStr = !inStr; continue; }
+          if (!inStr) {
+            if (ch === '{' || ch === '[') depth++;
+            else if (ch === '}' || ch === ']') depth--;
+          }
+        }
+        // Remove trailing vírgula e fecha estruturas
+        repaired = repaired.replace(/,\s*$/, '');
+        // Fecha arrays e objetos abertos na ordem inversa
+        // Estratégia simples: adiciona fechamentos baseado no que falta
+        const opens = [];
+        inStr = false; escape = false;
+        for (let i = 0; i < repaired.length; i++) {
+          const ch = repaired[i];
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"' && !escape) { inStr = !inStr; continue; }
+          if (!inStr) {
+            if (ch === '{') opens.push('}');
+            else if (ch === '[') opens.push(']');
+            else if (ch === '}' || ch === ']') opens.pop();
+          }
+        }
+        // Se estava no meio de uma string, fecha ela
+        if (inStr) repaired += '"';
+        // Fecha objetos/arrays abertos
+        repaired += opens.reverse().join('');
+        resultado = JSON.parse(repaired);
+      }
+    } catch(e) {
+      // Fallback: mostra o texto limpo como mensagem
+      const textoLimpo = rawText
+        .replace(/^\s*`{3,}(?:json)?\s*/i,'').replac
