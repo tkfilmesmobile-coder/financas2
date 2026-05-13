@@ -1291,7 +1291,7 @@ async function irisSendMsg() {
 
     // ── System prompt compacto com contexto real ──
     const system = [
-      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. SEM markdown. SEM backticks. SEM escapes de underscore. JSON compacto sem espacos extras.',
+      'Voce DEVE responder APENAS com um objeto JSON valido. Nenhuma palavra fora do JSON. Nenhum markdown. Nenhum texto antes ou depois. APENAS o JSON.',
       'FORMATO OBRIGATORIO: {"reply":"<msg curta>","action":{"type":"<TIPO>","params":<params>},"autoExec":true}',
       'IMPORTANTE: autoExec deve ser SEMPRE true para ADD_TRANSACTION e ADD_CATEGORY. Apenas false para DELETE.',
       'Para multiplos lancamentos: params deve ser um array JSON de objetos.',
@@ -1334,7 +1334,7 @@ async function irisSendMsg() {
 
     // ── OpenRouter API (compatível com formato OpenAI, CORS liberado) ──
     const orBody = JSON.stringify({
-      model: 'openrouter/auto',
+      model: 'google/gemini-2.0-flash-exp:free',
       max_tokens: 2500,
       messages: [
         { role: 'system', content: system },
@@ -1447,18 +1447,18 @@ async function irisSendMsg() {
     const reply  = resultado.reply  || '';
     const action = resultado.action || null;
 
-    // Mostra debug SEMPRE para diagnóstico
-    const debugInfo = 'RAW=' + rawText.slice(0,120) + ' | TYPE=' + (action ? action.type : 'null');
-    irisAddMsg('ai', debugInfo);
-
     // Executa ação se existir
     if (action) {
       const ok = execAcao(action);
-      irisAddMsg('ai', ok || reply || 'Feito!');
-      irisHistory.push({ role: 'assistant', content: ok || reply || 'ok' });
+      const msg = (reply ? reply + '\n\n' : '') + (ok || '');
+      irisAddMsg('ai', msg.trim() || 'Feito!');
+      irisHistory.push({ role: 'assistant', content: msg.trim() || 'ok' });
+    } else if (reply) {
+      irisAddMsg('ai', reply);
+      irisHistory.push({ role: 'assistant', content: reply });
     } else {
-      irisAddMsg('ai', reply || 'Não entendi, pode reformular?');
-      irisHistory.push({ role: 'assistant', content: reply || 'ok' });
+      irisAddMsg('ai', 'Não entendi, pode reformular?');
+      irisHistory.push({ role: 'assistant', content: 'ok' });
     }
 
   } catch(e) {
