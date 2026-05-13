@@ -1263,11 +1263,152 @@ function interpretarMensagem(txt) {
 }
 
 // ── Loop principal do chat ──
+
+// ══ DETECÇÃO LOCAL DE AÇÕES (sem API) ══
+function detectarAcaoLocal(txt) {
+  const lo = txt.toLowerCase().trim();
+  const sem = lo.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+
+  // Helper: extrai valor monetário
+  function extrairValor(s) {
+    const m = s.match(/r?\$?\s*([\d]+[.,][\d]{2})|([\d]{2,})/);
+    if (!m) return null;
+    const v = (m[1]||m[2]).replace('.','').replace(',','.');
+    return parseFloat(v);
+  }
+
+  // Helper: detecta mês
+  function extrairMes(s) {
+    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const nomes = ['janeiro','fevereiro','marco','abril','maio','junho',
+                   'julho','agosto','setembro','outubro','novembro','dezembro'];
+    for (let i=0;i<12;i++) if (ns.includes(nomes[i])) return i;
+    return null;
+  }
+
+  // Helper: detecta categoria
+  function extrairCat(s) {
+    const ns = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const map = [
+      [/mercado|supermercado|alimenta|comida|ifood|restaurante/,'Alimentação'],
+      [/aluguel|condominio|agua|luz|energia|internet|moradia|gas/,'Moradia'],
+      [/medico|farmacia|academia|saude|plano/,'Saúde'],
+      [/uber|onibus|combustivel|gasolina|transporte/,'Transporte'],
+      [/cinema|netflix|lazer|spotify|entretenimento/,'Lazer'],
+      [/escola|curso|faculdade|educacao/,'Educação'],
+      [/roupa|sapato|vestuario/,'Vestuário'],
+      [/cartao|credito|fatura/,'Cartão de Crédito'],
+      [/investimento|tesouro|cdb/,'Investimentos'],
+    ];
+    for (const [rx,cat] of map) if (rx.test(ns)) {
+      return S.cats.find(c=>c.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+        .includes(cat.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase())) || S.cats[0];
+    }
+    return S.cats[0];
+  }
+
+  // ── NAVEGAR ──
+  if (/(vai|ir|abre|mostra|navega).*(dashboard|inicio|painel|home)/.test(sem))
+    return {type:'NAVIGATE',params:{page:'dashboard'}};
+  if (/(vai|ir|abre|mostra).*(mentoria|analise ia)/.test(sem))
+    return {type:'NAVIGATE',params:{page:'mentoria'}};
+  if (/(vai|ir|abre).*(trimestral)/.test(sem))
+    return {type:'NAVIGATE',params:{page:'trimestral'}};
+  if (/(vai|ir|abre).*(semestral)/.test(sem))
+    return {type:'NAVIGATE',params:{page:'semestral'}};
+  if (/(vai|ir|abre).*(anual|ano todo)/.test(sem))
+    return {type:'NAVIGATE',params:{page:'anual'}};
+  const mNav = ['janeiro','fevereiro','marco','abril','maio','junho',
+                'julho','agosto','setembro','outubro','novembro','dezembro'];
+  for (let i=0;i<12;i++) {
+    if (sem.includes(mNav[i]) && /(vai|ir|abre|mes\s|aba)/.test(sem))
+      return {type:'NAVIGATE',params:{page:'mes_'+i}};
+  }
+
+  // ── EXCLUIR / REMOVER ──
+  const rxDel = /^(?:remove?|deleta|exclui|apaga|cancela|tira)\s+(?:o\s+|a\s+|os\s+|as\s+)?(.+)/i;
+  const mDel = txt.match(rxDel);
+  if (mDel) {
+    let desc = mDel[1].trim();
+    const mi = extrairMes(desc);
+    // Remove nome do mês da descrição
+    ['janeiro','fevereiro','março','abril','maio','junho',
+     'julho','agosto','setembro','outubro','novembro','dezembro'].forEach(m=>{
+      desc = desc.replace(new RegExp('\\s*(de\\s+)?'+m+'\\s*','i'),'').trim();
+    });
+    desc = desc.replace(/\s+de\s*$/i,'').trim();
+    return {type:'DELETE_TRANSACTION', params:{desc, mi: mi !== null ? mi : undefined}};
+  }
+
+  // ── CRIAR CATEGORIA ──
+  const rxCat = /(?:cria|adiciona|nova|crie)\s+categoria\s+["\'"]?([\w\s\-áàãâéêíóõôúüç]{2,30})["\'"]?/i;
+  const mCat = txt.match(rxCat);
+  if (mCat) return {type:'ADD_CATEGORY', params:{name: mCat[1].trim()}};
+
+  // ── ATUALIZAR META ──
+  const rxMeta = /(?:muda|altera|atualiza|define|ajusta)\s+(?:a\s+)?meta\s+(?:de\s+)?(\w+)\s+(?:para|em)\s+(?:r\$\s*)?([ \d.,]+)/i;
+  const mMeta = txt.match(rxMeta);
+  if (mMeta) {
+    const keys = {poupanca:'poupanca',poupança:'poupanca',reserva:'reserva',
+                  investimento:'investimento',divida:'divida',dívida:'divida'};
+    const key = Object.keys(keys).find(k=>mMeta[1].toLowerCase().includes(k));
+    const val = parseFloat(mMeta[2].replace(/\./g,'').replace(',','.'));
+    if (key && val>=0) return {type:'UPDATE_GOAL', params:{key:keys[key], valor:val}};
+  }
+
+  // ── ADICIONAR RECEITA ──
+  const isRec = /(recebi|ganhei|salario|salário|renda|freelance|bonus|bônus|receita|entrada)/.test(sem);
+  const rxAdd = /(?:adiciona|lanca|registra|coloca|recebi|ganhei)\s+.{0,40}?([\d]+[.,][\d]{2}|[\d]{2,})/i;
+  const mAdd = txt.match(rxAdd);
+  if (isRec && mAdd) {
+    const val = extrairValor(mAdd[0]);
+    if (val && val > 0) {
+      const mi = extrairMes(txt) !== null ? extrairMes(txt) : CM;
+      const fixo = /(fixo|recorrente|todo\s*mes|mensal)/.test(sem);
+      return {type:'ADD_TRANSACTION', params:{
+        desc: 'Receita', cat: S.cats.find(c=>c.includes('Outro'))||S.cats[0],
+        tipo:'RECEITA', valor:val, mi, nat: fixo?'fixa':'variavel', car:'pessoal', parc:1
+      }};
+    }
+  }
+
+  // ── ADICIONAR DESPESA ──
+  const rxDep = /(?:adiciona|lanca|registra|paguei|gastei|comprei|coloca)\s+.{0,50}?([\d]+[.,][\d]{2}|[\d]{2,})/i;
+  const mDep = txt.match(rxDep);
+  if (!isRec && mDep && !/remov|delet|exclu|apag/.test(sem)) {
+    const val = extrairValor(mDep[0]);
+    if (val && val > 0 && val < 500000) {
+      const mi = extrairMes(txt) !== null ? extrairMes(txt) : CM;
+      const cat = extrairCat(txt);
+      const fixo = /(fixo|recorrente|todo\s*mes|mensal)/.test(sem);
+      return {type:'ADD_TRANSACTION', params:{
+        desc: 'Despesa', cat, tipo:'DESPESA', valor:val, mi,
+        nat: fixo?'fixa':'variavel', car:'pessoal', parc:1
+      }};
+    }
+  }
+
+  return null; // Não detectado — chama a API
+}
+
 async function irisSendMsg() {
   if (irisThinking) return;
   const inp = document.getElementById('iinput');
   const txt = inp.value.trim();
   if (!txt) return;
+
+  // Tenta detectar ação localmente primeiro (sem gastar API)
+  const acaoLocal = detectarAcaoLocal(txt);
+  if (acaoLocal) {
+    inp.value = ''; grow(inp);
+    irisAddMsg('me', txt);
+    irisHistory.push({role:'user', content:txt});
+    const okLocal = execAcao(acaoLocal);
+    irisAddMsg('ai', okLocal || 'Feito!');
+    irisHistory.push({role:'assistant', content:okLocal||'ok'});
+    irisSave(); irisUpdateHints();
+    return;
+  }
 
   const key = getApiKey();
   if (!key) {
@@ -1334,7 +1475,7 @@ async function irisSendMsg() {
 
     // ── OpenRouter API (compatível com formato OpenAI, CORS liberado) ──
     const orBody = JSON.stringify({
-      model: 'google/gemini-2.0-flash-exp:free',
+      model: 'mistralai/mistral-7b-instruct:free',
       max_tokens: 2500,
       messages: [
         { role: 'system', content: system },
@@ -1398,154 +1539,4 @@ async function irisSendMsg() {
         let depth = 0, inStr = false, escape = false;
         for (let i = 0; i < repaired.length; i++) {
           const ch = repaired[i];
-          if (escape) { escape = false; continue; }
-          if (ch === '\\') { escape = true; continue; }
-          if (ch === '"' && !escape) { inStr = !inStr; continue; }
-          if (!inStr) {
-            if (ch === '{' || ch === '[') depth++;
-            else if (ch === '}' || ch === ']') depth--;
-          }
-        }
-        // Remove trailing vírgula e fecha estruturas
-        repaired = repaired.replace(/,\s*$/, '');
-        // Fecha arrays e objetos abertos na ordem inversa
-        // Estratégia simples: adiciona fechamentos baseado no que falta
-        const opens = [];
-        inStr = false; escape = false;
-        for (let i = 0; i < repaired.length; i++) {
-          const ch = repaired[i];
-          if (escape) { escape = false; continue; }
-          if (ch === '\\') { escape = true; continue; }
-          if (ch === '"' && !escape) { inStr = !inStr; continue; }
-          if (!inStr) {
-            if (ch === '{') opens.push('}');
-            else if (ch === '[') opens.push(']');
-            else if (ch === '}' || ch === ']') opens.pop();
-          }
-        }
-        // Se estava no meio de uma string, fecha ela
-        if (inStr) repaired += '"';
-        // Fecha objetos/arrays abertos
-        repaired += opens.reverse().join('');
-        resultado = JSON.parse(repaired);
-      }
-    } catch(e) {
-      // Fallback: mostra o texto limpo como mensagem
-      const textoLimpo = rawText
-        .replace(/^\s*`{3,}(?:json)?\s*/i,'').replace(/\s*`{3,}\s*$/,'')
-        .replace(/\\([_\-\*\(\)\[\]])/g,'$1').trim();
-      resultado = { reply: textoLimpo || 'Não entendi. Tente novamente.', action: null };
-    }
-
-    // Normaliza action.type: remove escapes residuais (ex: DELETE\_TRANSACTION -> DELETE_TRANSACTION)
-    if (resultado && resultado.action && resultado.action.type) {
-      resultado.action.type = resultado.action.type.replace(/\\/g, '').replace(/\s/g, '_').toUpperCase();
-    }
-
-    document.getElementById('typ').classList.remove('on');
-
-    const reply  = resultado.reply  || '';
-    const action = resultado.action || null;
-
-    // Executa ação se existir
-    if (action) {
-      const ok = execAcao(action);
-      const msg = (reply ? reply + '\n\n' : '') + (ok || '');
-      irisAddMsg('ai', msg.trim() || 'Feito!');
-      irisHistory.push({ role: 'assistant', content: msg.trim() || 'ok' });
-    } else if (reply) {
-      irisAddMsg('ai', reply);
-      irisHistory.push({ role: 'assistant', content: reply });
-    } else {
-      irisAddMsg('ai', 'Não entendi, pode reformular?');
-      irisHistory.push({ role: 'assistant', content: 'ok' });
-    }
-
-  } catch(e) {
-    document.getElementById('typ').classList.remove('on');
-    irisAddMsg('ai', 'Erro de conexão: ' + (e.message || String(e)));
-  } finally {
-    irisThinking = false;
-    document.getElementById('isend').disabled = false;
-    irisSave();
-    irisUpdateHints();
-  }
-}
-
-
-function onKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); irisSendMsg(); } }
-function grow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 90) + 'px'; }
-
-function irisUpdateHints() {
-  const ctx = buildCtx();
-  const pool = ctx.nLanc === 0
-    ? ['Adiciona salário 5000', 'Cria categoria Pets', 'Como funciona?']
-    : calcY().saldo > 0
-    ? ['Qual meu saldo?', 'Adiciona mercado 350', 'Onde mais gastei?']
-    : ['Qual meu saldo?', 'Como reduzir despesas?', 'Adiciona salário 5000'];
-  const el = document.getElementById('hints');
-  if (el) el.innerHTML = pool.slice(0,3).map(h =>
-    '<span class="hint" onclick="useHint(\'' + h.replace(/'/g, "\\'") + '\')">' + h + '</span>'
-  ).join('');
-}
-function useHint(h) { const i = document.getElementById('iinput'); i.value = h; i.focus(); grow(i); }
-
-function toggleIris() {
-  irisOpen = !irisOpen;
-  document.getElementById('ipanel').classList.toggle('on', irisOpen);
-  document.getElementById('irisbtn').classList.toggle('on', irisOpen);
-  atualizarKeyIndicator();
-  if (irisOpen && irisCount === 0) {
-    setTimeout(() => {
-      const ctx = buildCtx();
-      const msg = ctx.nLanc === 0
-        ? 'Olá, Talyta! Sou a Íris, sua assistente financeira.\n\nA planilha está vazia. Pode começar dizendo algo como:\n**"adiciona salário 5000"** ou **"adiciona mercado 350"**'
-        : 'Olá! Você tem **' + ctx.nLanc + ' lançamentos** em ' + S.year + '. Saldo: **' + fmtS(calcY().saldo) + '**.\n\nO que deseja fazer?';
-      irisAddMsg('ai', msg);
-      irisUpdateHints();
-    }, 300);
-  }
-}
-
-function limparHistorico() {
-  localStorage.removeItem('iris_v3');
-  irisHistory = [];
-  irisCount = 0;
-  // Limpa mensagens visuais
-  const msgs = document.getElementById('msgs');
-  const typ = document.getElementById('typ');
-  while (msgs.firstChild && msgs.firstChild !== typ) {
-    msgs.removeChild(msgs.firstChild);
-  }
-  irisAddMsg('ai', 'Histórico apagado! Pode começar do zero.');
-}
-
-// Init
-irisLoad();
-render();
-atualizarKeyIndicator();
-
-</script>
-
-<!-- ── Modal configuração API Key ── -->
-<div class="apimodal-overlay" id="apimodal-overlay" onclick="if(event.target===this)fecharKeyModal()">
-  <div class="apimodal">
-    <h2>✦ Conectar a Íris à IA</h2>
-    <p>Para que a Íris entenda qualquer linguagem e execute ações, ela precisa de uma chave da API Anthropic. É simples, barato e você configura só uma vez.</p>
-    <label>Sua chave da API Anthropic</label>
-    <input type="password" id="api-key-input" placeholder="sk-or-v1-..." autocomplete="off"
-      onkeydown="if(event.key==='Enter')salvarKey()">
-    <div class="apimodal-hint">
-      Obtenha gratuitamente em <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a> → Create Key.<br>
-      Tem modelos gratuitos (Llama, Gemma e outros). A chave começa com <strong>sk-or-...</strong><br>
-      A chave fica salva apenas no seu navegador, nunca é compartilhada.
-    </div>
-    <div class="apimodal-btns">
-      <button class="apimodal-skip" onclick="fecharKeyModal()">Agora não</button>
-      <button class="apimodal-save" onclick="salvarKey()">✓ Salvar e ativar Íris</button>
-    </div>
-  </div>
-</div>
-
-</body>
-</html>
+          if (esc
